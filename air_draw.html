@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ultra-Smooth Air Canvas</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; }
+        #video-preview { position: absolute; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 1; }
+        #canvas { position: absolute; top: 0; left: 0; z-index: 2; }
+        #controls { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10; background: rgba(0,0,0,0.8); padding: 12px 25px; border-radius: 50px; display: flex; gap: 20px; backdrop-filter: blur(10px); border: 1px solid #444; color: white; align-items: center; }
+        #status { font-weight: bold; color: #00ffff; }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <input type="color" id="color" value="#00ffff">
+        <input type="range" id="size" min="2" max="40" value="12">
+        <div id="status">Ready</div>
+    </div>
+
+    <video id="video-preview" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const video = document.getElementById('video-preview');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const status = document.getElementById('status');
+        
+        let lastX = null, lastY = null;
+        let smoothX = 0, smoothY = 0;
+        const smoothing = 0.20; // Lower value = much smoother, less "jitter"
+        let isDrawing = false;
+
+        function init() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        window.onresize = init;
+        init();
+
+        function onResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const hand = results.multiHandLandmarks[0];
+                const indexTip = hand[8];
+                const indexMcp = hand[5];
+
+                // Screen coordinates
+                const targetX = (1 - indexTip.x) * canvas.width;
+                const targetY = indexTip.y * canvas.height;
+
+                // Smoothing math
+                if (smoothX === 0) { smoothX = targetX; smoothY = targetY; }
+                smoothX += (targetX - smoothX) * smoothing;
+                smoothY += (targetY - smoothY) * smoothing;
+
+                // Gestures
+                const isPointing = indexTip.y < indexMcp.y;
+                const isOpenPalm = hand[12].y < hand[9].y && hand[16].y < hand[13].y;
+
+                if (isOpenPalm) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    lastX = null; lastY = null;
+                } else if (isPointing) {
+                    status.innerText = "DRAWING";
+                    // If this is the start of a stroke, jump to the position without drawing a line from the last spot
+                    if (lastX === null) {
+                        lastX = smoothX;
+                        lastY = smoothY;
+                    }
+                    drawCurve(lastX, lastY, smoothX, smoothY);
+                    lastX = smoothX;
+                    lastY = smoothY;
+                } else {
+                    status.innerText = "PAUSED";
+                    lastX = null; lastY = null; // Break the line so it doesn't "snap" when you start again
+                }
+            } else {
+                status.innerText = "NO HAND";
+                lastX = null; lastY = null;
+            }
+        }
+
+        function drawCurve(x1, y1, x2, y2) {
+            const color = document.getElementById('color').value;
+            const size = document.getElementById('size').value;
+
+            // Main Neon Glow
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = size;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = color;
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+
+            // Inner White Shine
+            ctx.beginPath();
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = size / 4;
+            ctx.shadowBlur = 0;
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+        }
+
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1, // High quality tracking
+            minDetectionConfidence: 0.8, // Only draw if very sure it's a hand
+            minTrackingConfidence: 0.8
+        });
+        hands.onResults(onResults);
+
+        const camera = new Camera(video, {
+            onFrame: async () => { await hands.send({image: video}); },
+            width: 1280, height: 720
+        });
+        camera.start();
+    </script>
+</body>
+</html>

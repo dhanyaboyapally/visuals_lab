@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Neural Mesh</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 20% 20%, rgba(70, 110, 255, 0.12), transparent 28%),
+                radial-gradient(circle at 80% 70%, rgba(120, 255, 230, 0.08), transparent 30%),
+                linear-gradient(180deg, #050811 0%, #070d18 45%, #03050a 100%);
+            font-family: Inter, Arial, sans-serif;
+            color: #dffcff;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #hud {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            padding: 14px 16px;
+            border: 1px solid rgba(130, 240, 255, 0.18);
+            background: rgba(7, 14, 24, 0.45);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            z-index: 10;
+            max-width: 320px;
+            box-shadow: 0 0 24px rgba(0, 200, 255, 0.06);
+        }
+
+        #hud h1 {
+            font-size: 15px;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            color: #f2ffff;
+        }
+
+        #hud p {
+            font-size: 13px;
+            line-height: 1.55;
+            color: rgba(220, 250, 255, 0.88);
+        }
+
+        #hud .accent {
+            color: #84efff;
+            font-weight: 700;
+        }
+
+        #badge {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(130, 240, 255, 0.18);
+            background: rgba(7, 14, 24, 0.42);
+            color: #bdf8ff;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            z-index: 10;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+        <h1>Neural Mesh</h1>
+        <p>
+            Move your cursor through the field to attract nodes and tighten the network.
+            <span class="accent">Click</span> to send a pulse.
+            <span class="accent">Press G</span> to toggle grid.
+            <span class="accent">Press C</span> to randomize the mesh.
+        </p>
+    </div>
+
+    <div id="badge">mode: live network</div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let w = canvas.width = innerWidth;
+        let h = canvas.height = innerHeight;
+
+        const pointer = {
+            x: w * 0.5,
+            y: h * 0.5,
+            active: false,
+            pulse: 0
+        };
+
+        let showGrid = true;
+        const nodes = [];
+        const pulses = [];
+        const bgParticles = [];
+
+        function rand(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function resize() {
+            w = canvas.width = innerWidth;
+            h = canvas.height = innerHeight;
+            initBackground();
+            initNodes();
+        }
+
+        addEventListener("resize", resize);
+
+        class Node {
+            constructor() {
+                this.reset(true);
+            }
+
+            reset(first = false) {
+                this.x = Math.random() * w;
+                this.y = Math.random() * h;
+                this.vx = rand(-0.35, 0.35);
+                this.vy = rand(-0.35, 0.35);
+                this.r = rand(1.8, 3.8);
+                this.phase = rand(0, Math.PI * 2);
+                this.baseHue = rand(185, 260);
+                if (!first) {
+                    this.x = Math.random() * w;
+                    this.y = Math.random() * h;
+                }
+            }
+
+            update() {
+                this.phase += 0.015;
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (pointer.active) {
+                    const dx = pointer.x - this.x;
+                    const dy = pointer.y - this.y;
+                    const d2 = dx * dx + dy * dy;
+                    const d = Math.sqrt(d2);
+
+                    if (d < 220 && d > 0.001) {
+                        const force = (1 - d / 220) * 0.025;
+                        this.vx += (dx / d) * force;
+                        this.vy += (dy / d) * force;
+                    }
+                }
+
+                this.vx *= 0.992;
+                this.vy *= 0.992;
+
+                if (this.x < 0 || this.x > w) this.vx *= -1;
+                if (this.y < 0 || this.y > h) this.vy *= -1;
+
+                this.x = Math.max(0, Math.min(w, this.x));
+                this.y = Math.max(0, Math.min(h, this.y));
+            }
+
+            draw() {
+                const twinkle = 1 + Math.sin(this.phase) * 0.12;
+                const glow = `hsla(${this.baseHue}, 100%, 72%, 1)`;
+
+                ctx.save();
+                ctx.shadowBlur = 14;
+                ctx.shadowColor = glow;
+                ctx.fillStyle = "rgba(225, 250, 255, 0.96)";
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.r * twinkle, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                ctx.save();
+                ctx.strokeStyle = `hsla(${this.baseHue}, 100%, 75%, 0.18)`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.r * 3.5, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class Pulse {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.r = 10;
+                this.alpha = 1;
+            }
+
+            update() {
+                this.r += 5.5;
+                this.alpha *= 0.965;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.strokeStyle = `rgba(140, 240, 255, ${this.alpha})`;
+                ctx.shadowBlur = 18;
+                ctx.shadowColor = "rgba(140, 240, 255, 0.7)";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        function initNodes() {
+            nodes.length = 0;
+            const count = Math.max(55, Math.floor((w * h) / 24000));
+            for (let i = 0; i < count; i++) nodes.push(new Node());
+        }
+
+        function initBackground() {
+            bgParticles.length = 0;
+            const count = Math.max(45, Math.floor((w * h) / 32000));
+            for (let i = 0; i < count; i++) {
+                bgParticles.push({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    r: rand(0.8, 2.2),
+                    a: rand(0.04, 0.22),
+                    vx: rand(-0.08, 0.08),
+                    vy: rand(-0.08, 0.08)
+                });
+            }
+        }
+
+        initBackground();
+        initNodes();
+
+        function drawBackground() {
+            const g = ctx.createLinearGradient(0, 0, 0, h);
+            g.addColorStop(0, "#050811");
+            g.addColorStop(0.55, "#08101b");
+            g.addColorStop(1, "#03050a");
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, w, h);
+
+            if (showGrid) {
+                ctx.save();
+                ctx.strokeStyle = "rgba(120, 210, 255, 0.045)";
+                ctx.lineWidth = 1;
+
+                const gap = 40;
+                for (let x = 0; x <= w; x += gap) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, h);
+                    ctx.stroke();
+                }
+                for (let y = 0; y <= h; y += gap) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(w, y);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+
+            for (const p of bgParticles) {
+                p.x += p.vx;
+                p.y += p.vy;
+                if (p.x < 0) p.x = w;
+                if (p.x > w) p.x = 0;
+                if (p.y < 0) p.y = h;
+                if (p.y > h) p.y = 0;
+
+                ctx.beginPath();
+                ctx.fillStyle = `rgba(180, 235, 255, ${p.a})`;
+                ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawConnections() {
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const a = nodes[i];
+                    const b = nodes[j];
+                    const dx = a.x - b.x;
+                    const dy = a.y - b.y;
+                    const d = Math.sqrt(dx * dx + dy * dy);
+
+                    if (d < 140) {
+                        const alpha = (1 - d / 140) * 0.38;
+
+                        const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+                        grad.addColorStop(0, `rgba(110, 240, 255, ${alpha})`);
+                        grad.addColorStop(1, `rgba(175, 130, 255, ${alpha * 0.9})`);
+
+                        ctx.save();
+                        ctx.strokeStyle = grad;
+                        ctx.lineWidth = d < 75 ? 1.5 : 0.8;
+                        ctx.shadowBlur = d < 75 ? 12 : 6;
+                        ctx.shadowColor = d < 75 ? "rgba(110, 240, 255, 0.5)" : "rgba(150, 140, 255, 0.25)";
+                        ctx.beginPath();
+                        ctx.moveTo(a.x, a.y);
+                        ctx.lineTo(b.x, b.y);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            }
+        }
+
+        function drawPointerField() {
+            if (!pointer.active) return;
+
+            const g = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 180);
+            g.addColorStop(0, "rgba(120, 245, 255, 0.18)");
+            g.addColorStop(0.35, "rgba(110, 200, 255, 0.08)");
+            g.addColorStop(1, "rgba(110, 200, 255, 0)");
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(pointer.x, pointer.y, 180, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = "rgba(140, 250, 255, 0.9)";
+            ctx.fillStyle = "#f2ffff";
+            ctx.beginPath();
+            ctx.arc(pointer.x, pointer.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        addEventListener("mousemove", (e) => {
+            pointer.x = e.clientX;
+            pointer.y = e.clientY;
+            pointer.active = true;
+        });
+
+        addEventListener("mouseleave", () => {
+            pointer.active = false;
+        });
+
+        addEventListener("click", (e) => {
+            pulses.push(new Pulse(e.clientX, e.clientY));
+        });
+
+        addEventListener("keydown", (e) => {
+            const key = e.key.toLowerCase();
+            if (key === "g") showGrid = !showGrid;
+            if (key === "c") initNodes();
+        });
+
+        function animate() {
+            drawBackground();
+
+            for (const node of nodes) node.update();
+            drawConnections();
+            for (const node of nodes) node.draw();
+
+            for (let i = pulses.length - 1; i >= 0; i--) {
+                pulses[i].update();
+                pulses[i].draw();
+                if (pulses[i].alpha < 0.03) pulses.splice(i, 1);
+            }
+
+            drawPointerField();
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+
+</html>

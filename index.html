@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Visuals Lab</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg1: #050811;
+            --bg2: #0a1020;
+            --card: rgba(12, 18, 34, 0.62);
+            --line: rgba(120, 220, 255, 0.16);
+            --text: #eafcff;
+            --muted: rgba(220, 245, 255, 0.72);
+            --glow: rgba(100, 220, 255, 0.18);
+            --accent1: #7de7ff;
+            --accent2: #b388ff;
+        }
+
+        body {
+            min-height: 100vh;
+            font-family: Inter, Arial, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(125, 231, 255, 0.10), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(179, 136, 255, 0.10), transparent 30%),
+                linear-gradient(180deg, var(--bg2) 0%, var(--bg1) 100%);
+        }
+
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(125, 231, 255, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(125, 231, 255, 0.04) 1px, transparent 1px);
+            background-size: 36px 36px;
+            mask-image: radial-gradient(circle at center, black 45%, transparent 95%);
+            pointer-events: none;
+        }
+
+        .wrap {
+            width: min(1180px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 32px 0 56px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero {
+            padding: 28px;
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            background: rgba(10, 16, 30, 0.55);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 40px rgba(90, 180, 255, 0.08);
+            margin-bottom: 26px;
+        }
+
+        .eyebrow {
+            display: inline-block;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            color: var(--accent1);
+            font-size: 12px;
+            letter-spacing: 1.4px;
+            text-transform: uppercase;
+            margin-bottom: 14px;
+            background: rgba(9, 20, 34, 0.45);
+        }
+
+        h1 {
+            font-size: clamp(34px, 6vw, 64px);
+            line-height: 1;
+            letter-spacing: -1.5px;
+            margin-bottom: 14px;
+        }
+
+        .grad {
+            background: linear-gradient(90deg, var(--accent1), #dffcff, var(--accent2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .sub {
+            max-width: 760px;
+            color: var(--muted);
+            font-size: 16px;
+            line-height: 1.7;
+            margin-bottom: 18px;
+        }
+
+        .top-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .btn {
+            text-decoration: none;
+            color: var(--text);
+            border: 1px solid var(--line);
+            padding: 12px 16px;
+            border-radius: 14px;
+            background: rgba(16, 24, 44, 0.6);
+            transition: 0.25s ease;
+            font-size: 14px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            border-color: rgba(125, 231, 255, 0.35);
+            box-shadow: 0 0 22px rgba(100, 220, 255, 0.10);
+        }
+
+        .section-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            gap: 16px;
+            margin: 22px 0 14px;
+        }
+
+        .section-title h2 {
+            font-size: 22px;
+            letter-spacing: -0.4px;
+        }
+
+        .section-title p {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 18px;
+        }
+
+        .card {
+            position: relative;
+            padding: 18px;
+            border-radius: 20px;
+            border: 1px solid var(--line);
+            background: var(--card);
+            backdrop-filter: blur(10px);
+            text-decoration: none;
+            color: inherit;
+            overflow: hidden;
+            min-height: 220px;
+            transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+            box-shadow: 0 0 24px rgba(80, 150, 255, 0.05);
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(125, 231, 255, 0.34);
+            box-shadow: 0 0 30px rgba(100, 220, 255, 0.12);
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            inset: auto -60px -60px auto;
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(125, 231, 255, 0.14), transparent 65%);
+            pointer-events: none;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 7px 10px;
+            border-radius: 999px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent1);
+            border: 1px solid rgba(125, 231, 255, 0.18);
+            background: rgba(10, 20, 38, 0.45);
+            margin-bottom: 16px;
+        }
+
+        .card h3 {
+            font-size: 22px;
+            margin-bottom: 10px;
+            letter-spacing: -0.4px;
+        }
+
+        .card p {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.65;
+            margin-bottom: 18px;
+            max-width: 95%;
+        }
+
+        .open {
+            font-size: 14px;
+            color: #ffffff;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .open span {
+            color: var(--accent1);
+        }
+
+        footer {
+            margin-top: 28px;
+            padding: 18px;
+            border-top: 1px solid rgba(125, 231, 255, 0.10);
+            color: rgba(220, 245, 255, 0.58);
+            font-size: 13px;
+            text-align: center;
+        }
+
+        @media (max-width: 720px) {
+            .hero {
+                padding: 20px;
+            }
+
+            .card {
+                min-height: 200px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <div class="wrap">
+        <section class="hero">
+            <div class="eyebrow">Interactive Visual Experiments</div>
+            <h1><span class="grad">Visuals Lab</span></h1>
+            <p class="sub">
+                A collection of browser-based interactive demos built with HTML, CSS, JavaScript,
+                Canvas, and motion-based visual systems. Open any project below to explore the effect.
+            </p>
+
+            <div class="top-actions">
+                <a class="btn" href="air_draw.html">Open Air Draw</a>
+                <a class="btn" href="hand-hud.html">Open Hand HUD</a>
+                <a class="btn" href="neural-mesh.html">Open Neural Mesh</a>
+            </div>
+        </section>
+
+        <div class="section-title">
+            <h2>Projects</h2>
+            <p>All pages hosted together in one place</p>
+        </div>
+
+        <section class="grid">
+            <a class="card" href="air_draw.html">
+                <div class="tag">Gesture / Drawing</div>
+                <h3>Air Draw</h3>
+                <p>Freeform in-air drawing interface with smooth motion and live trails.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="anti_gravity.html">
+                <div class="tag">Physics / Motion</div>
+                <h3>Anti Gravity</h3>
+                <p>Particles respond like a suspended force field with anti-gravity behavior.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="Constellation.html">
+                <div class="tag">Cosmic / Network</div>
+                <h3>Constellation</h3>
+                <p>Create glowing star links and build a dynamic constellation system.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="hand-hud.html">
+                <div class="tag">HUD / Tracking</div>
+                <h3>Hand HUD</h3>
+                <p>Futuristic hand interface with tracked visuals, trails, and holographic styling.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="nail-glow-finger-trails.html">
+                <div class="tag">Glow / Trails</div>
+                <h3>Nail Glow Trails</h3>
+                <p>Glossy fingertip-style glow trails with a polished neon aesthetic.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="neural-mesh.html">
+                <div class="tag">AI / Network</div>
+                <h3>Neural Mesh</h3>
+                <p>A living mesh of nodes and connections that reacts like a neural system.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="pulse-reactor.html">
+                <div class="tag">Core / Energy</div>
+                <h3>Pulse Reactor</h3>
+                <p>A central energy core with rings, pulses, sparks, and reactor-style motion.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="ribbon-bow-creator.html">
+                <div class="tag">Generative / Design</div>
+                <h3>Ribbon Bow Creator</h3>
+                <p>Interactive ribbon-inspired motion graphics and elegant shape generation.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="time-echo.html">
+                <div class="tag">Temporal / Motion</div>
+                <h3>Time Echo</h3>
+                <p>Ghosted delayed trails and time-layered motion echoes across the screen.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+
+            <a class="card" href="weather_control.html">
+                <div class="tag">Atmosphere / FX</div>
+                <h3>Weather Control</h3>
+                <p>Interactive weather-inspired visuals with dramatic environmental motion.</p>
+                <div class="open"><span>→</span> Open demo</div>
+            </a>
+        </section>
+
+        <footer>
+            Built as a single Netlify site with multiple linked HTML demos.
+        </footer>
+    </div>
+</body>
+
+</html>

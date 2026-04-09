@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nail Glow / Finger Trails</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top, rgba(255, 180, 230, 0.12), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(160, 140, 255, 0.10), transparent 30%),
+                linear-gradient(180deg, #090611 0%, #120a1f 40%, #07040f 100%);
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            color: #ffeaff;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            cursor: crosshair;
+        }
+
+        #hud {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            padding: 14px 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 210, 245, 0.24);
+            background: rgba(25, 10, 35, 0.42);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 0 28px rgba(255, 120, 220, 0.10);
+            z-index: 10;
+            max-width: 320px;
+        }
+
+        #hud h1 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: 0.8px;
+            color: #fff4fd;
+        }
+
+        #hud p {
+            font-size: 13px;
+            line-height: 1.55;
+            color: rgba(255, 235, 248, 0.88);
+        }
+
+        #hud .accent {
+            color: #ff9fe6;
+            font-weight: 700;
+        }
+
+        #badge {
+            position: absolute;
+            right: 18px;
+            top: 18px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 210, 245, 0.22);
+            background: rgba(25, 10, 35, 0.4);
+            color: #ffd6f3;
+            font-size: 12px;
+            letter-spacing: 1px;
+            z-index: 10;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+        <h1>Nail Glow / Finger Trails</h1>
+        <p>
+            Move your mouse like a fingertip. Each trail behaves like a glowing nail swipe.
+            <span class="accent">Click</span> to burst sparkles,
+            <span class="accent">press C</span> to clear,
+            <span class="accent">press B</span> to toggle background stars.
+        </p>
+    </div>
+
+    <div id="badge">glow mode: glossy pastel</div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let w = canvas.width = innerWidth;
+        let h = canvas.height = innerHeight;
+
+        const pointer = {
+            x: w * 0.5,
+            y: h * 0.5,
+            prevX: w * 0.5,
+            prevY: h * 0.5,
+            down: false,
+            speed: 0
+        };
+
+        const trails = [];
+        const sparkles = [];
+        const stars = [];
+        let showStars = true;
+        let hueShift = 0;
+
+        const palette = [
+            "#ff8fd8",
+            "#ffc0f2",
+            "#caa7ff",
+            "#9fe8ff",
+            "#ffd7fb"
+        ];
+
+        function resize() {
+            w = canvas.width = innerWidth;
+            h = canvas.height = innerHeight;
+            createStars();
+        }
+
+        addEventListener("resize", resize);
+
+        function rand(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function pick(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        function createStars() {
+            stars.length = 0;
+            const count = Math.floor((w * h) / 12000);
+            for (let i = 0; i < count; i++) {
+                stars.push({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    r: rand(0.5, 1.7),
+                    a: rand(0.15, 0.8),
+                    tw: rand(0.003, 0.014)
+                });
+            }
+        }
+
+        createStars();
+
+        class TrailParticle {
+            constructor(x, y, color, vx, vy, size, life) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.size = size;
+                this.life = life;
+                this.maxLife = life;
+                this.color = color;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.985;
+                this.vy *= 0.985;
+                this.life -= 1;
+            }
+
+            draw() {
+                const alpha = this.life / this.maxLife;
+
+                ctx.save();
+                ctx.globalAlpha = alpha * 0.95;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y, this.size * 1.7, this.size, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                ctx.save();
+                ctx.globalAlpha = alpha * 0.55;
+                ctx.strokeStyle = "#fff8ff";
+                ctx.lineWidth = 0.8;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 0.9, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class Sparkle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = rand(-3.2, 3.2);
+                this.vy = rand(-3.2, 3.2);
+                this.size = rand(1.2, 3.4);
+                this.life = rand(35, 75);
+                this.maxLife = this.life;
+                this.color = color;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.015;
+                this.vx *= 0.992;
+                this.vy *= 0.992;
+                this.life--;
+            }
+
+            draw() {
+                const alpha = this.life / this.maxLife;
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.life * 0.05);
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = this.color;
+                ctx.shadowBlur = 16;
+                ctx.shadowColor = this.color;
+                ctx.lineWidth = 1.2;
+
+                ctx.beginPath();
+                ctx.moveTo(-this.size, 0);
+                ctx.lineTo(this.size, 0);
+                ctx.moveTo(0, -this.size);
+                ctx.lineTo(0, this.size);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        }
+
+        function spawnTrail(x, y, intensity = 1) {
+            const amount = Math.floor(4 + intensity * 4);
+
+            for (let i = 0; i < amount; i++) {
+                const color = pick(palette);
+                trails.push(
+                    new TrailParticle(
+                        x + rand(-6, 6),
+                        y + rand(-6, 6),
+                        color,
+                        rand(-0.8, 0.8) + (pointer.x - pointer.prevX) * 0.05,
+                        rand(-0.8, 0.8) + (pointer.y - pointer.prevY) * 0.05,
+                        rand(2.5, 6.2),
+                        rand(20, 42)
+                    )
+                );
+            }
+        }
+
+        function burstSparkles(x, y) {
+            for (let i = 0; i < 28; i++) {
+                sparkles.push(new Sparkle(x, y, pick(palette)));
+            }
+        }
+
+        addEventListener("mousemove", (e) => {
+            pointer.prevX = pointer.x;
+            pointer.prevY = pointer.y;
+            pointer.x = e.clientX;
+            pointer.y = e.clientY;
+
+            const dx = pointer.x - pointer.prevX;
+            const dy = pointer.y - pointer.prevY;
+            pointer.speed = Math.hypot(dx, dy);
+
+            spawnTrail(pointer.x, pointer.y, Math.min(pointer.speed / 10, 2.2));
+        });
+
+        addEventListener("mousedown", (e) => {
+            pointer.down = true;
+            burstSparkles(e.clientX, e.clientY);
+        });
+
+        addEventListener("mouseup", () => {
+            pointer.down = false;
+        });
+
+        addEventListener("keydown", (e) => {
+            const key = e.key.toLowerCase();
+            if (key === "c") {
+                trails.length = 0;
+                sparkles.length = 0;
+            }
+            if (key === "b") {
+                showStars = !showStars;
+            }
+        });
+
+        function drawBackground() {
+            const bg = ctx.createLinearGradient(0, 0, 0, h);
+            bg.addColorStop(0, "#0d0718");
+            bg.addColorStop(0.45, "#140a22");
+            bg.addColorStop(1, "#08030e");
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, w, h);
+
+            const glow1 = ctx.createRadialGradient(w * 0.2, h * 0.2, 0, w * 0.2, h * 0.2, 280);
+            glow1.addColorStop(0, "rgba(255,140,220,0.08)");
+            glow1.addColorStop(1, "rgba(255,140,220,0)");
+            ctx.fillStyle = glow1;
+            ctx.fillRect(0, 0, w, h);
+
+            const glow2 = ctx.createRadialGradient(w * 0.78, h * 0.75, 0, w * 0.78, h * 0.75, 320);
+            glow2.addColorStop(0, "rgba(150,170,255,0.07)");
+            glow2.addColorStop(1, "rgba(150,170,255,0)");
+            ctx.fillStyle = glow2;
+            ctx.fillRect(0, 0, w, h);
+
+            if (showStars) {
+                for (const s of stars) {
+                    const alpha = s.a + Math.sin(hueShift * 0.04 + s.x * 0.01) * 0.12;
+                    ctx.beginPath();
+                    ctx.fillStyle = `rgba(255,245,255,${Math.max(0.05, alpha)})`;
+                    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function drawRibbonStroke() {
+            const dx = pointer.x - pointer.prevX;
+            const dy = pointer.y - pointer.prevY;
+            const angle = Math.atan2(dy, dx || 0.001);
+            const width = Math.min(20, 6 + pointer.speed * 0.35);
+
+            ctx.save();
+            ctx.translate(pointer.x, pointer.y);
+            ctx.rotate(angle);
+
+            const grad = ctx.createLinearGradient(-width, 0, width, 0);
+            grad.addColorStop(0, "rgba(255,155,230,0)");
+            grad.addColorStop(0.25, "rgba(255,155,230,0.45)");
+            grad.addColorStop(0.5, "rgba(255,240,250,0.95)");
+            grad.addColorStop(0.75, "rgba(180,235,255,0.45)");
+            grad.addColorStop(1, "rgba(180,235,255,0)");
+
+            ctx.fillStyle = grad;
+            ctx.shadowBlur = 22;
+            ctx.shadowColor = "rgba(255,180,230,0.8)";
+            ctx.beginPath();
+            ctx.roundRect(-width * 1.2, -3.2, width * 2.4, 6.4, 6);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawPointerAura() {
+            const g = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 90);
+            g.addColorStop(0, "rgba(255,180,235,0.22)");
+            g.addColorStop(0.45, "rgba(205,170,255,0.10)");
+            g.addColorStop(1, "rgba(205,170,255,0)");
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(pointer.x, pointer.y, 90, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.shadowBlur = 25;
+            ctx.shadowColor = "#ffd6f7";
+            ctx.fillStyle = "#fff5fd";
+            ctx.beginPath();
+            ctx.arc(pointer.x, pointer.y, 4.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function animate() {
+            hueShift += 1;
+            drawBackground();
+
+            for (let i = trails.length - 1; i >= 0; i--) {
+                trails[i].update();
+                trails[i].draw();
+                if (trails[i].life <= 0) trails.splice(i, 1);
+            }
+
+            for (let i = sparkles.length - 1; i >= 0; i--) {
+                sparkles[i].update();
+                sparkles[i].draw();
+                if (sparkles[i].life <= 0) sparkles.splice(i, 1);
+            }
+
+            drawRibbonStroke();
+            drawPointerAura();
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+
+</html>

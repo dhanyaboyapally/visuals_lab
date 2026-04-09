@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STARK TECH // Hand Trails</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; width: 100vw; height: 100vh;
+           font-family: 'Courier New', monospace; color: #0ff; }
+
+    #video {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);   /* mirror so it feels like a selfie */
+      opacity: 0.72;
+      z-index: 1;
+    }
+
+    /* Single canvas — drawn entirely in JS, cleared + redrawn every frame.
+       Trails are stored in JS arrays, NOT on the canvas, so they never
+       accidentally get wiped on clearRect. */
+    #canvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      z-index: 2;
+    }
+
+    /* ── HUD ── */
+    #hud { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+
+    .corner {
+      position: absolute; width: 50px; height: 50px;
+      border: 2px solid rgba(0,255,255,0.6);
+    }
+    .corner::before {
+      content: ''; position: absolute;
+      width: 7px; height: 7px;
+      background: #0ff; box-shadow: 0 0 8px #0ff;
+    }
+    .tl{top:18px;left:18px;border-right:none;border-bottom:none;}
+    .tl::before{top:-3px;left:-3px;}
+    .tr{top:18px;right:18px;border-left:none;border-bottom:none;}
+    .tr::before{top:-3px;right:-3px;}
+    .bl{bottom:18px;left:18px;border-right:none;border-top:none;}
+    .bl::before{bottom:-3px;left:-3px;}
+    .br{bottom:18px;right:18px;border-left:none;border-top:none;}
+    .br::before{bottom:-3px;right:-3px;}
+
+    #title-bar {
+      position: absolute; top: 20px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px; letter-spacing: 4px; color: #0ff;
+      text-shadow: 0 0 12px #0ff; white-space: nowrap;
+    }
+    .blink { animation: blink 1s step-end infinite; }
+    @keyframes blink { 50%{opacity:0} }
+
+    #stats-left {
+      position: absolute; bottom: 26px; left: 26px;
+      font-size: 10px; line-height: 2; letter-spacing: 2px;
+      color: rgba(0,255,255,0.7);
+    }
+    #stats-right {
+      position: absolute; bottom: 26px; right: 26px;
+      font-size: 10px; line-height: 2; letter-spacing: 2px;
+      color: rgba(0,255,255,0.7); text-align: right;
+    }
+    .scan {
+      position: absolute; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg,transparent,rgba(0,255,255,.4) 50%,transparent);
+      animation: scandown 5s linear infinite;
+    }
+    @keyframes scandown{from{top:0}to{top:100%}}
+
+    /* ── Loading ── */
+    #loading {
+      position: absolute; inset: 0; z-index: 99; background: #000;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 20px;
+    }
+    #loading h1 {
+      font-size: 28px; letter-spacing: 10px; color: #0ff;
+      text-shadow: 0 0 30px #0ff, 0 0 60px #0ff;
+      animation: flicker 2s ease-in-out infinite;
+    }
+    @keyframes flicker{
+      0%,100%{opacity:1}92%{opacity:1}93%{opacity:.3}
+      94%{opacity:1}96%{opacity:.5}97%{opacity:1}
+    }
+    #loading p { font-size: 11px; letter-spacing: 3px; color: rgba(0,255,255,.55); }
+    #bar { width: 260px; height: 2px; background: rgba(0,255,255,.1);
+           position: relative; overflow: hidden; }
+    #bar::after {
+      content: ''; position: absolute;
+      height: 100%; width: 40%; background: #0ff;
+      box-shadow: 0 0 10px #0ff;
+      animation: prog 1.5s ease-in-out infinite;
+    }
+    @keyframes prog{from{left:-40%}to{left:100%}}
+  </style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+  <div class="corner tl"></div><div class="corner tr"></div>
+  <div class="corner bl"></div><div class="corner br"></div>
+  <div class="scan"></div>
+  <div id="title-bar">STARK TECH // HAND TRAIL INTERFACE <span class="blink">▮</span></div>
+  <div id="stats-left">
+    <div id="el-fps">FPS: --</div>
+    <div id="el-hands">HANDS: 0</div>
+    <div id="el-status">STATUS: SCANNING</div>
+  </div>
+  <div id="stats-right">
+    <div id="el-chir">CHIRALITY: --</div>
+    <div id="el-conf">CONF: --</div>
+    <div id="el-coord">-- , --</div>
+  </div>
+</div>
+
+<div id="loading">
+  <h1>STARK TECH</h1>
+  <div id="bar"></div>
+  <p>INITIALIZING HAND TRACKING <span class="blink">...</span></p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script>
+'use strict';
+
+/*
+ * ═══════════════════════════════════════════════════════════════════
+ *  WHAT WAS BROKEN & WHAT WAS FIXED
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  BROKEN:
+ *  1. Trails stored on the canvas via destination-out fade.
+ *     CSS filter:blur on the bloom canvas interacted badly with
+ *     destination-out, making lines invisible or corrupting alpha.
+ *
+ *  2. Two-canvas (bloom + crisp) approach: CSS blur washed out thin
+ *     stroke lines (~7px) while keeping large dot fills visible —
+ *     so connections appeared missing even though they were drawn.
+ *
+ *  3. No inter-hand connection code existed at all.
+ *
+ *  4. Hand order from MediaPipe changes frame-to-frame, so indexing
+ *     by array position (hand 0, hand 1) caused jumping/wrong state.
+ *
+ *  FIXED:
+ *  1. Single canvas, clearRect every frame.
+ *     Trails are stored in JS arrays (trailStore) keyed by stable
+ *     hand labels ('Left' / 'Right'). clearRect can never erase them.
+ *
+ *  2. No CSS filter. Glow via single shadowBlur pass per group of
+ *     shapes — far cheaper than 3× per shape, and guaranteed visible.
+ *
+ *  3. Inter-hand elastic connections drawn when both labels detected.
+ *     Animated bezier curves with energy pulses traveling along them.
+ *
+ *  4. Hands keyed by MediaPipe label ('Left'/'Right') not by array
+ *     index. Smoothed state and trail history both keyed by label.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════
+const CFG = {
+  maxHands:    2,
+  detectConf:  0.55,
+  trackConf:   0.45,
+  smoothAlpha: 0.28,   // EMA alpha — lower = smoother, higher = snappier
+  trailLen:    28,     // frames of trail history per landmark
+  hueSpeed:    0.55,   // rainbow cycle speed (deg/frame)
+};
+
+// ═══════════════════════════════════════════════
+//  SKELETON TOPOLOGY
+// ═══════════════════════════════════════════════
+const CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],        // thumb
+  [5,6],[6,7],[7,8],              // index
+  [9,10],[10,11],[11,12],         // middle
+  [13,14],[14,15],[15,16],        // ring
+  [17,18],[18,19],[19,20],        // pinky
+  [0,5],[0,17],                   // palm sides
+  [5,9],[9,13],[13,17],           // knuckle bar
+];
+
+const TRIANGLES = [
+  [0,1,5],[0,5,9],[0,9,13],[0,13,17],
+  [5,6,9],[9,10,13],[13,14,17],
+];
+
+const TIPS     = [4, 8, 12, 16, 20];
+const KNUCKLES = [0, 5, 9, 13, 17];
+
+// Which landmark pairs to connect between the two hands.
+// Using key joints so the web of connections isn't overwhelming.
+const INTER_PAIRS = [
+  [0, 0],   // wrist ↔ wrist
+  [4, 4],   // thumb tip ↔ thumb tip
+  [8, 8],   // index tip ↔ index tip
+  [12,12],  // middle tip ↔ middle tip
+  [16,16],  // ring tip ↔ ring tip
+  [20,20],  // pinky tip ↔ pinky tip
+];
+
+// ═══════════════════════════════════════════════
+//  CANVAS — single surface, cleared every frame
+// ═══════════════════════════════════════════════
+const canvas  = document.getElementById('canvas');
+const ctx     = canvas.getContext('2d');
+const $video  = document.getElementById('video');
+const $load   = document.getElementById('loading');
+
+ctx.lineCap  = 'round';
+ctx.lineJoin = 'round';
+
+let vigGrad = null;   // cached vignette gradient
+
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  vigGrad = null;    // invalidate cached gradient on resize
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+
+// liveHands: currently detected hands this MediaPipe frame.
+// Keyed by label ('Left' | 'Right') → array of 21 smoothed {x,y} points.
+let liveHands = {};
+
+// Per-label EMA smoothed positions (normalised [0,1]).
+// Keyed by label so hand order changes don't corrupt smoothing.
+const smoothed = {};
+
+// Trail store: trailStore[label][landmarkIndex] = [{x,y}, …] (normalised coords)
+// Storing normalised coords means resize never invalidates stored trails.
+const trailStore = {
+  Left:  Array.from({length: 21}, () => []),
+  Right: Array.from({length: 21}, () => []),
+};
+
+let hueBase    = 0;
+let frameCount = 0, lastFpsTime = performance.now(), fps = 0, hudTick = 0;
+
+// ═══════════════════════════════════════════════
+//  COORDINATE HELPERS
+//  lx/ly: normalised landmark → canvas pixel (x flipped to match CSS mirror)
+// ═══════════════════════════════════════════════
+const lx = lm => (1 - lm.x) * canvas.width;
+const ly = lm => lm.y * canvas.height;
+
+// Same conversion for stored trail points (also stored normalised)
+const tx = pt => (1 - pt.x) * canvas.width;
+const ty = pt => pt.y * canvas.height;
+
+const hsl = (h, s, l, a) =>
+  `hsla(${((h % 360) + 360) % 360},${s}%,${l}%,${a})`;
+
+// ═══════════════════════════════════════════════
+//  EMA SMOOTHING — keyed by hand label
+// ═══════════════════════════════════════════════
+function smoothHand(label, rawLMs) {
+  if (!smoothed[label] || smoothed[label].length !== rawLMs.length) {
+    // First time we see this label — seed with raw values
+    smoothed[label] = rawLMs.map(lm => ({ x: lm.x, y: lm.y }));
+    return smoothed[label];
+  }
+  const a = CFG.smoothAlpha;
+  rawLMs.forEach((lm, i) => {
+    smoothed[label][i].x += a * (lm.x - smoothed[label][i].x);
+    smoothed[label][i].y += a * (lm.y - smoothed[label][i].y);
+  });
+  return smoothed[label];
+}
+
+// ═══════════════════════════════════════════════
+//  TRAIL STORE — push new positions each frame
+// ═══════════════════════════════════════════════
+function pushTrail(label, lms) {
+  const store = trailStore[label];
+  lms.forEach((lm, i) => {
+    // Store normalised so trails survive canvas resize
+    store[i].push({ x: lm.x, y: lm.y });
+    if (store[i].length > CFG.trailLen) store[i].shift();
+  });
+}
+
+// When a hand disappears, clear its trail immediately so old positions
+// don't "haunt" when the hand reappears in a different location.
+function clearTrail(label) {
+  trailStore[label].forEach(arr => (arr.length = 0));
+  delete smoothed[label];
+}
+
+// ═══════════════════════════════════════════════
+//  DRAW: TRAILS
+//  Each landmark's trail is a tapering polyline from oldest (thin, faint)
+//  to newest (thick, bright). Drawn without shadowBlur for speed.
+// ═══════════════════════════════════════════════
+function drawTrails(label, baseHue) {
+  const store = trailStore[label];
+
+  store.forEach((pts, li) => {
+    if (pts.length < 2) return;
+
+    const h      = (baseHue + (li / 21) * 180) % 360;
+    const isTip  = TIPS.includes(li);
+    const maxW   = isTip ? 6 : 2.5;   // tip trails wider
+    const maxA   = isTip ? 0.8 : 0.5; // tip trails more opaque
+
+    for (let i = 1; i < pts.length; i++) {
+      // t=0 at oldest end of trail, t=1 at newest
+      const t = i / pts.length;
+
+      ctx.beginPath();
+      ctx.moveTo(tx(pts[i - 1]), ty(pts[i - 1]));
+      ctx.lineTo(tx(pts[i]),     ty(pts[i]));
+      ctx.strokeStyle = hsl(h, 100, 70, t * t * maxA);
+      ctx.lineWidth   = t * maxW + 0.4;
+      ctx.stroke();
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  DRAW: SKELETON  (connections + joints + rings)
+//  Single shadowBlur pass per draw group — not 3× per shape.
+// ═══════════════════════════════════════════════
+function drawSkeleton(lms, baseHue) {
+  const n = lms.length;
+  const t = performance.now() * 0.001;
+
+  // --- Triangle mesh fills (no shadow, just translucent colour)
+  ctx.shadowBlur = 0;
+  TRIANGLES.forEach((tri, i) => {
+    const h = (baseHue + i * 16) % 360;
+    ctx.beginPath();
+    ctx.moveTo(lx(lms[tri[0]]), ly(lms[tri[0]]));
+    ctx.lineTo(lx(lms[tri[1]]), ly(lms[tri[1]]));
+    ctx.lineTo(lx(lms[tri[2]]), ly(lms[tri[2]]));
+    ctx.closePath();
+    ctx.fillStyle = hsl(h, 100, 55, 0.1);
+    ctx.fill();
+  });
+
+  // --- Bone connections with single shadowBlur
+  ctx.shadowBlur = 14;
+  CONNECTIONS.forEach(([a, b], i) => {
+    const h = (baseHue + (i / CONNECTIONS.length) * 180) % 360;
+    ctx.beginPath();
+    ctx.moveTo(lx(lms[a]), ly(lms[a]));
+    ctx.lineTo(lx(lms[b]), ly(lms[b]));
+    ctx.strokeStyle = hsl(h, 100, 72, 1);
+    ctx.shadowColor = hsl(h, 100, 65, 1);
+    ctx.lineWidth   = 2.5;
+    ctx.stroke();
+  });
+  ctx.shadowBlur = 0;
+
+  // --- Joint nodes
+  ctx.shadowBlur = 10;
+  lms.forEach((lm, i) => {
+    const h = (baseHue + (i / n) * 220) % 360;
+    const r = TIPS.includes(i) ? 5 : KNUCKLES.includes(i) ? 4 : 2.5;
+    ctx.beginPath();
+    ctx.arc(lx(lm), ly(lm), r, 0, Math.PI * 2);
+    ctx.fillStyle  = hsl(h, 100, 85, 1);
+    ctx.shadowColor = hsl(h, 100, 70, 1);
+    ctx.fill();
+  });
+  ctx.shadowBlur = 0;
+
+  // --- Pulsing rings at fingertips
+  ctx.shadowBlur = 10;
+  TIPS.forEach((ti, fi) => {
+    const x = lx(lms[ti]), y = ly(lms[ti]);
+    const h = (baseHue + fi * 72) % 360;
+    const r = 16 + Math.sin(t * 5 + fi * 1.3) * 4;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = hsl(h, 100, 78, 0.65);
+    ctx.shadowColor = hsl(h, 100, 70, 1);
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+  });
+  ctx.shadowBlur = 0;
+}
+
+// ═══════════════════════════════════════════════
+//  DRAW: INTER-HAND CONNECTIONS
+//  Only drawn when BOTH 'Left' and 'Right' are in liveHands.
+//  Animated elastic bezier curves with energy pulses.
+// ═══════════════════════════════════════════════
+function drawInterHandConnections() {
+  const L = liveHands['Left'];
+  const R = liveHands['Right'];
+  if (!L || !R) return;   // need both hands
+
+  const t = performance.now() * 0.001;
+
+  INTER_PAIRS.forEach(([li, ri], pairIdx) => {
+    const x1 = lx(L[li]), y1 = ly(L[li]);
+    const x2 = lx(R[ri]), y2 = ly(R[ri]);
+
+    // Hue cycles through a different range from hand skeleton
+    const h = (hueBase + 200 + pairIdx * 35) % 360;
+
+    // Bezier control point: midpoint + small animated oscillation
+    // Creates a "vibrating string" feel
+    const mx  = (x1 + x2) / 2 + Math.sin(t * 2.5 + pairIdx * 0.9) * 25;
+    const my  = (y1 + y2) / 2 + Math.cos(t * 2.0 + pairIdx * 1.2) * 18;
+
+    // Fade connection based on hand separation (closer = brighter)
+    const dist  = Math.hypot(x2 - x1, y2 - y1);
+    const alpha = Math.min(1, Math.max(0.25, 1.2 - dist / (canvas.width * 0.55)));
+
+    // ── 1. Wide soft halo
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(mx, my, x2, y2);
+    ctx.strokeStyle = hsl(h, 100, 60, alpha * 0.18);
+    ctx.lineWidth   = 18;
+    ctx.shadowBlur  = 0;
+    ctx.stroke();
+
+    // ── 2. Medium glow band
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(mx, my, x2, y2);
+    ctx.strokeStyle = hsl(h, 100, 68, alpha * 0.55);
+    ctx.lineWidth   = 6;
+    ctx.shadowBlur  = 18;
+    ctx.shadowColor = hsl(h, 100, 68, 1);
+    ctx.stroke();
+
+    // ── 3. Bright core strand
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(mx, my, x2, y2);
+    ctx.strokeStyle = hsl(h, 60, 95, alpha * 0.95);
+    ctx.lineWidth   = 1.5;
+    ctx.shadowBlur  = 6;
+    ctx.shadowColor = hsl(h, 100, 90, 1);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // ── 4. Three energy pulses travelling along the bezier
+    for (let pulse = 0; pulse < 3; pulse++) {
+      const bt = ((t * 0.65 + pairIdx * 0.18 + pulse * 0.33) % 1);
+      // Evaluate quadratic bezier at parameter bt
+      const ot  = 1 - bt;
+      const bx  = ot * ot * x1 + 2 * ot * bt * mx + bt * bt * x2;
+      const by  = ot * ot * y1 + 2 * ot * bt * my + bt * bt * y2;
+      const pr  = 2.5 + Math.sin(bt * Math.PI) * 2; // bigger in middle of path
+
+      ctx.beginPath();
+      ctx.arc(bx, by, pr, 0, Math.PI * 2);
+      ctx.fillStyle  = hsl(h, 100, 96, alpha * 0.9);
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = hsl(h, 100, 90, 1);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  DRAW: VIGNETTE  (cached radial gradient)
+// ═══════════════════════════════════════════════
+function drawVignette() {
+  if (!vigGrad) {
+    const W = canvas.width, H = canvas.height;
+    vigGrad = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.9);
+    vigGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    vigGrad.addColorStop(1, 'rgba(0,0,0,0.6)');
+  }
+  ctx.fillStyle = vigGrad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// ═══════════════════════════════════════════════
+//  HUD  (DOM refs cached; update throttled to every 8 frames)
+// ═══════════════════════════════════════════════
+const elFps  = document.getElementById('el-fps');
+const elHand = document.getElementById('el-hands');
+const elStat = document.getElementById('el-status');
+const elChir = document.getElementById('el-chir');
+const elConf = document.getElementById('el-conf');
+const elCrd  = document.getElementById('el-coord');
+
+function updateHUD() {
+  const labels = Object.keys(liveHands);
+  elFps.textContent  = `FPS: ${fps}`;
+  elHand.textContent = `HANDS: ${labels.length}`;
+  elStat.textContent = labels.length ? 'STATUS: LOCKED' : 'STATUS: SCANNING';
+  if (labels.length) {
+    const first = labels[0];
+    const w     = liveHands[first][0];
+    elChir.textContent = `CHIRALITY: ${labels.join(' + ')}`;
+    elCrd.textContent  = `${((1 - w.x) * 100).toFixed(1)}% , ${(w.y * 100).toFixed(1)}%`;
+    elConf.textContent = '';
+  } else {
+    elChir.textContent = 'CHIRALITY: --';
+    elCrd.textContent  = '-- , --';
+    elConf.textContent = '';
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  MAIN RENDER LOOP
+//  Draw order: trails → skeleton → inter-hand → vignette
+//  Trails must be drawn first (oldest layer); skeleton + connections on top.
+// ═══════════════════════════════════════════════
+function loop() {
+  requestAnimationFrame(loop);
+
+  hueBase = (hueBase + CFG.hueSpeed) % 360;
+
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsTime >= 1000) {
+    fps = frameCount; frameCount = 0; lastFpsTime = now;
+  }
+
+  // Clear canvas every frame (trails live in JS arrays, not on canvas)
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 1. Trails — drawn from JS history arrays, always up to date
+  const labels = ['Left', 'Right'];
+  labels.forEach((label, i) => {
+    const hueOffset = (hueBase + i * 60) % 360;
+    drawTrails(label, hueOffset);
+  });
+
+  // 2. Current skeleton for each live hand
+  Object.entries(liveHands).forEach(([label, lms], i) => {
+    const hueOffset = (hueBase + (label === 'Left' ? 0 : 60)) % 360;
+    drawSkeleton(lms, hueOffset);
+  });
+
+  // 3. Inter-hand connections (only when both hands present)
+  drawInterHandConnections();
+
+  // 4. Vignette last (darkens edges without hiding hand visuals)
+  drawVignette();
+
+  if (++hudTick >= 8) { updateHUD(); hudTick = 0; }
+}
+
+// ═══════════════════════════════════════════════
+//  MEDIAPIPE SETUP
+// ═══════════════════════════════════════════════
+function init() {
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+  });
+
+  hands.setOptions({
+    maxNumHands:            CFG.maxHands,
+    modelComplexity:        0,           // fastest model
+    minDetectionConfidence: CFG.detectConf,
+    minTrackingConfidence:  CFG.trackConf,
+  });
+
+  // Track which labels were present last frame to detect disappearances
+  let prevLabels = new Set();
+
+  hands.onResults(r => {
+    if ($load.style.display !== 'none') $load.style.display = 'none';
+
+    const lmList   = r.multiHandLandmarks || [];
+    const metaList = r.multiHandedness    || [];
+
+    // Build this-frame label set
+    const thisLabels = new Set();
+    const newLiveHands = {};
+
+    lmList.forEach((rawLMs, i) => {
+      // Use MediaPipe's handedness label for stable hand identity.
+      // (MediaPipe is consistent within a session; 'Left'/'Right' from
+      //  camera perspective, which stays stable frame-to-frame.)
+      const label = metaList[i]?.label ?? (i === 0 ? 'Left' : 'Right');
+      thisLabels.add(label);
+
+      const sLMs = smoothHand(label, rawLMs);  // EMA smooth
+      newLiveHands[label] = sLMs;              // store for rendering + inter-hand
+      pushTrail(label, sLMs);                  // add current pos to trail history
+    });
+
+    // Clear trail + smoothing state for any hand that disappeared this frame.
+    // This prevents a ghost "jump" trail when a hand reappears elsewhere.
+    prevLabels.forEach(label => {
+      if (!thisLabels.has(label)) clearTrail(label);
+    });
+
+    prevLabels  = thisLabels;
+    liveHands   = newLiveHands;
+  });
+
+  new Camera($video, {
+    onFrame: async () => hands.send({ image: $video }),
+    width: 640, height: 480,
+  }).start().catch(err => {
+    console.error(err);
+    document.querySelector('#loading p').textContent =
+      'CAMERA ACCESS DENIED — ALLOW PERMISSION AND RELOAD';
+  });
+}
+
+init();
+loop();
+</script>
+</body>
+</html>

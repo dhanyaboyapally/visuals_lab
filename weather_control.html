@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Control</title>
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(#0a0f1f, #000);
+            font-family: monospace;
+            color: #0ff;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+        MODE: <span id="mode">RAIN</span><br>
+        Press 1: Rain | 2: Snow | 3: Wind | 4: Lightning
+    </div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener("resize", resize);
+
+        // -----------------------------
+        // STATE
+        // -----------------------------
+        let mode = "rain";
+        let particles = [];
+        let lightningTimer = 0;
+
+        // -----------------------------
+        // PARTICLE CLASS
+        // -----------------------------
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = 0;
+                this.vy = Math.random() * 4 + 2;
+                this.size = Math.random() * 2 + 1;
+            }
+
+            update() {
+                if (mode === "rain") {
+                    this.vy = 6;
+                    this.vx = 0;
+                }
+
+                if (mode === "snow") {
+                    this.vy = 1;
+                    this.vx = Math.sin(this.y * 0.01);
+                }
+
+                if (mode === "wind") {
+                    this.vx = 4;
+                    this.vy = 0;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (this.y > canvas.height || this.x > canvas.width) {
+                    this.y = 0;
+                    this.x = Math.random() * canvas.width;
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+
+                if (mode === "rain") {
+                    ctx.strokeStyle = "#66ccff";
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x, this.y + 10);
+                    ctx.stroke();
+                }
+
+                if (mode === "snow") {
+                    ctx.fillStyle = "#ffffff";
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                if (mode === "wind") {
+                    ctx.strokeStyle = "#0ff";
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x - 10, this.y);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // -----------------------------
+        // INIT PARTICLES
+        // -----------------------------
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < 200; i++) {
+                particles.push(new Particle());
+            }
+        }
+        initParticles();
+
+        // -----------------------------
+        // LIGHTNING
+        // -----------------------------
+        function drawLightning() {
+            ctx.strokeStyle = "#fff";
+            ctx.lineWidth = 2;
+
+            let x = Math.random() * canvas.width;
+            let y = 0;
+
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+
+            for (let i = 0; i < 10; i++) {
+                x += (Math.random() - 0.5) * 50;
+                y += canvas.height / 10;
+                ctx.lineTo(x, y);
+            }
+
+            ctx.stroke();
+        }
+
+        // -----------------------------
+        // LOOP
+        // -----------------------------
+        function animate() {
+            requestAnimationFrame(animate);
+
+            ctx.fillStyle = "rgba(0,0,0,0.2)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            if (mode === "lightning") {
+                lightningTimer++;
+                if (lightningTimer % 60 === 0) {
+                    drawLightning();
+                    document.body.style.background = "#fff";
+                    setTimeout(() => {
+                        document.body.style.background = "black";
+                    }, 100);
+                }
+            }
+        }
+        animate();
+
+        // -----------------------------
+        // CONTROLS
+        // -----------------------------
+        document.addEventListener("keydown", e => {
+            if (e.key === "1") mode = "rain";
+            if (e.key === "2") mode = "snow";
+            if (e.key === "3") mode = "wind";
+            if (e.key === "4") mode = "lightning";
+
+            document.getElementById("mode").innerText = mode.toUpperCase();
+        });
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pulse Reactor</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            overflow: hidden;
+            background:
+                radial-gradient(circle at center, rgba(0, 180, 255, 0.08), transparent 26%),
+                radial-gradient(circle at 50% 58%, rgba(170, 80, 255, 0.08), transparent 34%),
+                linear-gradient(180deg, #05070d 0%, #08111a 45%, #03050a 100%);
+            font-family: Inter, Arial, sans-serif;
+            color: #e9fbff;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #hud {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            padding: 14px 16px;
+            border: 1px solid rgba(120, 230, 255, 0.18);
+            background: rgba(5, 12, 20, 0.45);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            z-index: 10;
+            max-width: 330px;
+        }
+
+        #hud h1 {
+            font-size: 15px;
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+            color: #f1fdff;
+        }
+
+        #hud p {
+            font-size: 13px;
+            line-height: 1.55;
+            color: rgba(225, 248, 255, 0.88);
+        }
+
+        #hud .accent {
+            color: #84efff;
+            font-weight: 700;
+        }
+
+        #badge {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(120, 230, 255, 0.18);
+            background: rgba(5, 12, 20, 0.42);
+            color: #bef7ff;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            z-index: 10;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+        <h1>Pulse Reactor</h1>
+        <p>
+            Move your cursor to charge the core. Faster motion increases energy.
+            <span class="accent">Click</span> to release a shockwave.
+            <span class="accent">Press C</span> to cool the reactor.
+        </p>
+    </div>
+
+    <div id="badge">status: stable charge</div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let w = canvas.width = innerWidth;
+        let h = canvas.height = innerHeight;
+        let cx = w / 2;
+        let cy = h / 2;
+
+        const pointer = {
+            x: cx,
+            y: cy,
+            px: cx,
+            py: cy,
+            speed: 0
+        };
+
+        let energy = 0.35;
+        const sparks = [];
+        const shockwaves = [];
+        const orbiters = [];
+
+        function rand(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function resize() {
+            w = canvas.width = innerWidth;
+            h = canvas.height = innerHeight;
+            cx = w / 2;
+            cy = h / 2;
+            initOrbiters();
+        }
+
+        addEventListener("resize", resize);
+
+        class Spark {
+            constructor(angle, strength) {
+                const r = rand(20, 55);
+                this.x = cx + Math.cos(angle) * r;
+                this.y = cy + Math.sin(angle) * r;
+                this.vx = Math.cos(angle) * rand(1.5, 4.5) * strength;
+                this.vy = Math.sin(angle) * rand(1.5, 4.5) * strength;
+                this.life = rand(24, 52);
+                this.maxLife = this.life;
+                this.size = rand(1.4, 3.6);
+                this.h = rand(185, 280);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.985;
+                this.vy *= 0.985;
+                this.life--;
+            }
+
+            draw() {
+                const a = this.life / this.maxLife;
+                ctx.save();
+                ctx.globalAlpha = a;
+                ctx.shadowBlur = 16;
+                ctx.shadowColor = `hsla(${this.h},100%,70%,1)`;
+                ctx.fillStyle = `hsla(${this.h},100%,75%,1)`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Shockwave {
+            constructor() {
+                this.r = 20;
+                this.alpha = 1;
+            }
+
+            update() {
+                this.r += 7;
+                this.alpha *= 0.965;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.lineWidth = 2.2;
+                ctx.strokeStyle = `rgba(135, 240, 255, ${this.alpha})`;
+                ctx.shadowBlur = 18;
+                ctx.shadowColor = "rgba(135, 240, 255, 0.8)";
+                ctx.beginPath();
+                ctx.arc(cx, cy, this.r, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class Orbiter {
+            constructor(i) {
+                this.base = rand(65, 145);
+                this.angle = rand(0, Math.PI * 2);
+                this.speed = rand(0.003, 0.015) * (i % 2 ? 1 : -1);
+                this.size = rand(1.4, 3.2);
+                this.h = rand(185, 255);
+            }
+
+            update() {
+                this.angle += this.speed + energy * 0.02;
+            }
+
+            draw() {
+                const r = this.base + Math.sin(this.angle * 3) * 8 * energy;
+                const x = cx + Math.cos(this.angle) * r;
+                const y = cy + Math.sin(this.angle) * r;
+
+                ctx.save();
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = `hsla(${this.h},100%,70%,1)`;
+                ctx.fillStyle = `hsla(${this.h},100%,76%,1)`;
+                ctx.beginPath();
+                ctx.arc(x, y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        function initOrbiters() {
+            orbiters.length = 0;
+            for (let i = 0; i < 24; i++) orbiters.push(new Orbiter(i));
+        }
+        initOrbiters();
+
+        function drawBackground() {
+            const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.7);
+            g.addColorStop(0, "rgba(8,18,28,1)");
+            g.addColorStop(0.45, "rgba(5,9,16,1)");
+            g.addColorStop(1, "rgba(2,4,8,1)");
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, w, h);
+
+            const vignette = ctx.createRadialGradient(cx, cy, 40, cx, cy, Math.max(w, h) * 0.8);
+            vignette.addColorStop(0, "rgba(0,0,0,0)");
+            vignette.addColorStop(1, "rgba(0,0,0,0.45)");
+            ctx.fillStyle = vignette;
+            ctx.fillRect(0, 0, w, h);
+        }
+
+        function drawCoreRings(t) {
+            for (let i = 0; i < 4; i++) {
+                const radius = 58 + i * 22 + Math.sin(t * 0.002 + i) * 6 * energy;
+                ctx.save();
+                ctx.strokeStyle = i % 2
+                    ? `rgba(160, 120, 255, ${0.15 + energy * 0.18})`
+                    : `rgba(120, 235, 255, ${0.18 + energy * 0.22})`;
+                ctx.lineWidth = 1.5;
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = i % 2 ? "rgba(180, 130, 255, 0.55)" : "rgba(120, 235, 255, 0.6)";
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        function drawCore(t) {
+            const pulse = 1 + Math.sin(t * 0.005) * 0.06 * (0.6 + energy);
+            const coreR = 40 + energy * 22;
+
+            const outer = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 3.2);
+            outer.addColorStop(0, `rgba(120, 245, 255, ${0.28 + energy * 0.18})`);
+            outer.addColorStop(0.35, `rgba(150, 120, 255, ${0.12 + energy * 0.12})`);
+            outer.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = outer;
+            ctx.beginPath();
+            ctx.arc(cx, cy, coreR * 3.2, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.scale(pulse, pulse);
+
+            const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, coreR);
+            grad.addColorStop(0, "rgba(255,255,255,0.98)");
+            grad.addColorStop(0.28, "rgba(155,245,255,0.98)");
+            grad.addColorStop(0.7, "rgba(80,170,255,0.96)");
+            grad.addColorStop(1, "rgba(145,90,255,0.8)");
+
+            ctx.shadowBlur = 28 + energy * 20;
+            ctx.shadowColor = "rgba(110, 230, 255, 0.85)";
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawArcs(t) {
+            for (let i = 0; i < 5; i++) {
+                const r = 72 + i * 18;
+                const start = t * 0.0015 * (i % 2 ? 1 : -1) + i;
+                const len = 0.85 + Math.sin(t * 0.002 + i) * 0.25;
+
+                ctx.save();
+                ctx.strokeStyle = i % 2
+                    ? `rgba(130, 240, 255, ${0.22 + energy * 0.3})`
+                    : `rgba(190, 130, 255, ${0.16 + energy * 0.22})`;
+                ctx.lineWidth = 2.2;
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = i % 2 ? "rgba(130, 240, 255, 0.7)" : "rgba(190, 130, 255, 0.55)";
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, start, start + len);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        function spawnSparks(strength = 1) {
+            const count = Math.floor(8 + strength * 18);
+            for (let i = 0; i < count; i++) {
+                sparks.push(new Spark(rand(0, Math.PI * 2), strength));
+            }
+        }
+
+        addEventListener("mousemove", (e) => {
+            pointer.px = pointer.x;
+            pointer.py = pointer.y;
+            pointer.x = e.clientX;
+            pointer.y = e.clientY;
+
+            const dx = pointer.x - pointer.px;
+            const dy = pointer.y - pointer.py;
+            pointer.speed = Math.hypot(dx, dy);
+
+            energy += Math.min(pointer.speed / 350, 0.045);
+
+            const dist = Math.hypot(pointer.x - cx, pointer.y - cy);
+            if (dist < 180 && Math.random() < 0.35) {
+                spawnSparks(Math.min(1.2, 0.35 + pointer.speed / 30));
+            }
+        });
+
+        addEventListener("click", () => {
+            shockwaves.push(new Shockwave());
+            spawnSparks(1.7);
+            energy += 0.18;
+        });
+
+        addEventListener("keydown", (e) => {
+            if (e.key.toLowerCase() === "c") energy = 0.18;
+        });
+
+        function animate(t = 0) {
+            drawBackground();
+
+            energy *= 0.992;
+            energy = Math.max(0.18, Math.min(1.25, energy));
+
+            drawCoreRings(t);
+            for (const o of orbiters) {
+                o.update();
+                o.draw();
+            }
+            drawArcs(t);
+            drawCore(t);
+
+            for (let i = shockwaves.length - 1; i >= 0; i--) {
+                shockwaves[i].update();
+                shockwaves[i].draw();
+                if (shockwaves[i].alpha < 0.03) shockwaves.splice(i, 1);
+            }
+
+            for (let i = sparks.length - 1; i >= 0; i--) {
+                sparks[i].update();
+                sparks[i].draw();
+                if (sparks[i].life <= 0) sparks.splice(i, 1);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+
+</html>
